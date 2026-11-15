@@ -1,0 +1,8 @@
+# Run on your own PC / home server:  docker compose up -d
+services:
+  finder:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data

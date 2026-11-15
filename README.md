@@ -1,2 +1,111 @@
-# Maine-Coon-Finder
-Find the perfect Main-Coon
+# Maine Coon Finder
+
+Watches UK pet sites for **dark grey Maine Coon kittens** and pings you on Telegram the moment one appears, with a photo, price, age, distance and health checks. Tap **Yes** and it contacts the seller for you; tap **No** and it moves on.
+
+## How it works
+
+```
+every ~3 min, per site
+  Pets4Homes / Gumtree / Preloved  ──▶  new advert?  (SQLite remembers everything already seen)
+        │
+        ▼
+  free checks: Maine Coon? not a cross? under 1 year? ≤ £1000? within distance? not sold?
+        │
+        ▼
+  Claude looks at up to 4 photos + the text: is there a DARK GREY kitten?
+  (solid blue, blue smoke, black smoke/charcoal; not silver, black, tabby, cream…)
+  and pulls out vaccinated / wormed / vet checked / microchipped / registered
+        │
+        ▼
+  Telegram alert:  photo · price (⭐ if ≤ £500) · age · miles away · health · [✅ Yes] [❌ No] [🔗 Open]
+        │
+   Yes ─┴─▶ email address in the advert?  ── yes ─▶ email sent from your account (BCC to you)
+                                          └─ no ──▶ ready-to-paste message + link (site's own chat)
+   No  ───▶ marked skipped, never shown again
+```
+
+**Nothing is ever sent to a seller without your Yes.** The code only contacts a seller after the advert's status changes from `notified` to `approved` via your button, and a double-tap can't send twice (both are covered by tests).
+
+### Sites
+
+| Site | Status | How we read it | Contacting the seller |
+|---|---|---|---|
+| Pets4Homes | ✅ | Search page JSON (newest first, kittens ≤ 12 months) | Pets4Homes chat only (login) |
+| Gumtree | ✅ | Category pages + advert JSON-LD (robots.txt blocks `/search`, so we don't use it) | Gumtree message form |
+| Preloved | ✅ | The JSON feed the site's own page uses | Preloved reply form |
+| Freeads | ❌ | Blocks automated access (403). We don't try to get round it. | |
+| Facebook | ❌ | Needs a login; scraping breaks Meta's terms | |
+| Kittenlist | ❌ | Site returns an error page | |
+
+**Important limitation:** UK classified sites hide sellers' email addresses. Yes sends an email only when the seller put an address in the advert text. Otherwise you get the message ready to paste into the site's chat, plus the seller's phone number if they listed one. Automating the sites' chat would mean logging in as you with a bot, which breaks their terms and gets accounts banned, so the finder doesn't do it.
+
+Each site gets 1 search request per scan, plus one request per *new* advert, with at least 2 seconds between requests to the same site. If a site starts refusing, the finder backs off (5 min, doubling to 1 h) on its own.
+
+## Setup
+
+### 1. Telegram bot
+1. In Telegram, message **@BotFather**, send `/newbot`, and copy the token into `TELEGRAM_BOT_TOKEN`.
+2. Send your new bot any message.
+3. Start the finder with only the token set: the bot replies with your chat id. Put it in `TELEGRAM_CHAT_ID` and restart.
+
+### 2. Claude API key
+Create a key at <https://console.anthropic.com> → `ANTHROPIC_API_KEY`. Only adverts that pass the free checks get a photo check, so cost is small (roughly 2-3p per advert checked; the first run checks the backlog once).
+
+### 3. Email (for the Yes button)
+With Gmail: turn on 2-step verification, create an **app password** at <https://myaccount.google.com/apppasswords>, and set `SMTP_USER` (your address) and `SMTP_PASSWORD` (the app password). Set `BUYER_NAME` and `BUYER_PHONE`. Edit the wording in [`templates/seller_message.txt`](templates/seller_message.txt).
+
+### 4. Your search
+`HOME_POSTCODE` + `MAX_DISTANCE_MILES` limit by distance (blank = whole UK). Prices: `MAX_PRICE_GBP` (hard cap, default 1000) and `PREFERRED_PRICE_GBP` (gets a ⭐, default 500). All settings are in [`.env.example`](.env.example).
+
+## Running it
+
+### Option A: Fly.io (recommended, always on, about £2-4/month)
+```bash
+# install flyctl: https://fly.io/docs/flyctl/install/
+fly auth signup                      # or: fly auth login
+fly launch --copy-config --no-deploy # pick a unique app name when asked
+fly volumes create finder_data --size 1 --region lhr
+fly secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... ANTHROPIC_API_KEY=... \
+  SMTP_USER=... SMTP_PASSWORD=... BUYER_NAME="..." BUYER_PHONE="..." \
+  HOME_POSTCODE="..." MAX_DISTANCE_MILES=100
+fly deploy
+fly logs                             # watch it work
+```
+
+### Option B: your own PC or a Raspberry Pi (free, home internet)
+```bash
+cp .env.example .env   # fill it in
+docker compose up -d   # restarts by itself after reboots
+docker compose logs -f
+```
+A home connection is less likely to be blocked by sites, but it only works while the machine is on.
+
+### Option C: plain Python
+```bash
+python -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # fill it in
+python -m maine_coon_finder
+```
+
+### Why not GitHub Actions?
+Scheduled workflows run at most every 5 minutes, are often delayed by 10-30 minutes at busy times, and can't receive your button taps between runs. For kittens that go within the hour, an always-on worker is the right tool.
+
+## Commands
+
+| Where | Command | What it does |
+|---|---|---|
+| Terminal | `python -m maine_coon_finder` | Run forever |
+| Terminal | `python -m maine_coon_finder preview` | Show what each site returns right now and which adverts pass the free checks (no Claude, no alerts) |
+| Terminal | `python -m maine_coon_finder scan-once` | One full pass, then exit |
+| Terminal | `python -m maine_coon_finder test-alert` | Send a fake alert so you can see the buttons |
+| Telegram | `/status` | Counts and current rules |
+| Telegram | `/pause`, `/resume` | Stop/start checking sites |
+| Telegram | `/test` | Fake alert (Yes on it never emails anyone) |
+
+## Development
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+Code: `maine_coon_finder/sources/` (one file per site), `filters.py` (rules), `vision.py` (Claude photo check), `app.py` (scan loop, alerts, buttons), `store.py` (SQLite). To add a site, subclass `Source` with `search()` and optionally `enrich()`, and register it in `sources/__init__.py`.

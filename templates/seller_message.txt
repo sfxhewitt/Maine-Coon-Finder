@@ -1,0 +1,12 @@
+Hi${seller_greeting},
+
+I've just seen your advert "${title}" on ${site} and I'd love to buy your dark grey Maine Coon kitten if it's still available.
+
+I can move quickly: I'm happy to pay a deposit straight away and arrange to view and collect at a time that suits you.
+Could you let me know if it's still available and what the next steps are?
+
+Advert: ${url}
+
+Many thanks,
+${buyer_name}
+${buyer_phone}

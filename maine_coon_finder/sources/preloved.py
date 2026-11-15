@@ -1,0 +1,58 @@
+"""Preloved: the site's own pages load results from a JSON endpoint
+(/account/api/classifieds), which we call the same way the browser does, at a
+low rate. robots.txt disallows /search?keyword and /rest, which we avoid.
+Sellers are contacted through Preloved's reply form (login needed)."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Iterable
+
+from ..models import Listing
+from .base import Source, parse_age_text
+
+BASE = "https://www.preloved.co.uk"
+API = BASE + "/account/api/classifieds?q=maine+coon&advertType=forsale&sectionId=3358"
+PAGE_SIZE = 20
+
+
+def _dt(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+class Preloved(Source):
+    name = "preloved"
+    contact_note = (
+        "Preloved only lets buyers reply through its own message form, so I can't "
+        "email this seller. Tap the advert, press Reply, and paste the text below."
+    )
+
+    def search(self, page: int = 1) -> Iterable[Listing]:
+        url = API + (f"&offset={(page - 1) * PAGE_SIZE}" if page > 1 else "")
+        data = self.http.get(url, headers={"Accept": "application/json"}).json()
+        for ad in data.get("adverts", []):
+            loc = ad.get("location") or {}
+            coords = loc.get("coordinates") or {}
+            imgs = [i.get("url") for i in (ad.get("media") or {}).get("images", []) if i.get("url")]
+            text = f"{ad.get('title', '')} {ad.get('shortDescription', '')}"
+            yield Listing(
+                source=self.name,
+                source_id=str(ad["id"]),
+                url=f"{BASE}/adverts/show/{ad['id']}",
+                title=(ad.get("title") or "").strip(),
+                description=(ad.get("shortDescription") or "").strip(),
+                price_gbp=(ad.get("price") or {}).get("value") or None,
+                location=loc.get("display", ""),
+                lat=coords.get("lat"),
+                lon=coords.get("lon"),
+                images=imgs,
+                published_at=_dt(ad.get("createdDate")),
+                seller_type=((ad.get("advertiser") or {}).get("type") or {}).get("value", ""),
+                age_days=parse_age_text(text),
+                enriched=True,  # the API already gives what we need
+            )
