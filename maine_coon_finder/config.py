@@ -108,6 +108,13 @@ class Settings:
         "(KHTML, like Gecko) Chrome/130.0 Safari/537.36"
     )
 
+    # --- Pets4Homes chat as you (optional, against P4H terms: your call) ---
+    p4h_auto_message: bool = False
+    p4h_email: str = ""
+    p4h_password: str = ""
+    p4h_session_path: str = "data/p4h_session.json"
+    chromium_path: str = ""
+
     # --- Storage / modes ---
     db_path: str = "data/finder.sqlite3"
     dry_run: bool = False  # never actually send email when true
@@ -148,6 +155,11 @@ class Settings:
             backfill_pages=_int("BACKFILL_PAGES", d.backfill_pages),
             pages_per_scan=_int("PAGES_PER_SCAN", d.pages_per_scan),
             user_agent=_get("USER_AGENT", d.user_agent),
+            p4h_auto_message=_bool("P4H_AUTO_MESSAGE", d.p4h_auto_message),
+            p4h_email=_get("P4H_EMAIL"),
+            p4h_password=_get("P4H_PASSWORD"),
+            p4h_session_path=_get("P4H_SESSION_PATH", d.p4h_session_path),
+            chromium_path=_get("CHROMIUM_PATH"),
             db_path=_get("DB_PATH", d.db_path),
             dry_run=_bool("DRY_RUN", d.dry_run),
             log_level=_get("LOG_LEVEL", d.log_level),

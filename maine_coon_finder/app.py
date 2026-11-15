@@ -59,6 +59,16 @@ class Finder:
         self.mailer = mailer or Mailer(s)
         self.sources = [_SourceState(src) for src in build_sources(s.sources, self.http)]
         self._stop = threading.Event()
+        self._code_event = threading.Event()
+        self._code_value: str | None = None
+        self.p4h = None
+        if s.p4h_auto_message:
+            from .p4h_chat import P4HChat, materialise_session
+
+            materialise_session(s.p4h_session_path)
+            self.p4h = P4HChat(
+                s.p4h_session_path, s.p4h_email, s.p4h_password, s.chromium_path, ask_code=self._ask_code
+            )
 
     # ------------------------------------------------------------------ scan
     @property
@@ -178,7 +188,12 @@ class Finder:
             lines.append(f"\n{esc(a.summary)}")
         lines.append(f"\n{esc(l.source.title())}" + (f" · {esc(l.seller_type)}" if l.seller_type else ""))
         email = find_email(l)
-        lines.append("📧 Yes will email the seller" if email else "💬 Yes gives you a ready-to-paste message (site has no email)")
+        if email:
+            lines.append("📧 Yes will email the seller")
+        elif l.source == "pets4homes" and self.p4h is not None:
+            lines.append("💬 Yes will message the seller on Pets4Homes as you")
+        else:
+            lines.append("💬 Yes gives you a ready-to-paste message (site has no email)")
         return "\n".join(lines)
 
     def keyboard(self, l: Listing) -> list:
@@ -270,9 +285,51 @@ class Finder:
             extra = f"\n📞 Their number from the advert: {esc(phone)}" if phone else ""
             self.tg.send_text(f"✅ Email sent to {esc(email)}.{extra}", reply_to=msg_id)
             return
+        if l.source == "pets4homes" and self.p4h is not None:
+            # Runs in its own thread: it may need to ask you for a login code over Telegram,
+            # and the Telegram thread has to stay free to receive your reply.
+            threading.Thread(
+                target=self._p4h_message, args=(l, body, phone, msg_id), name="p4h-chat", daemon=True
+            ).start()
+            return
+        self._manual_contact(l, body, phone, msg_id, src)
+
+    def _p4h_message(self, l: Listing, body: str, phone: str | None, msg_id: int | None) -> None:
+        try:
+            res = self.p4h.send(l.url, body)
+        except Exception as e:  # noqa: BLE001
+            log.exception("Pets4Homes chat failed")
+            from .p4h_chat import ChatResult
+
+            res = ChatResult(False, str(e)[:300])
+        if res.ok:
+            self.store.set_status(l.key, "contacted", "p4h chat")
+            self._mark(msg_id, l, "✅ Messaged the seller on Pets4Homes")
+            extra = f"\n📞 Their number from the advert: {esc(phone)}" if phone else ""
+            if res.screenshot:
+                self.tg.send_photo(res.screenshot, f"✅ Sent on Pets4Homes chat as you.{extra}")
+            else:
+                self.tg.send_text(f"✅ Sent on Pets4Homes chat as you.{extra}", reply_to=msg_id)
+            return
+        if res.screenshot:
+            self.tg.send_photo(res.screenshot, f"⚠️ Pets4Homes chat didn't work: {esc(res.detail)}")
+        src = next((st.source for st in self.sources if st.source.name == l.source), None)
+        self._manual_contact(l, body, phone, msg_id, src, problem=res.detail)
+
+    def _ask_code(self, prompt: str, timeout: float = 600) -> str | None:
+        self._code_value = None
+        self._code_event.clear()
+        self.tg.send_text(f"🔐 {esc(prompt)}")
+        if self._code_event.wait(timeout):
+            return self._code_value
+        return None
+
+    def _manual_contact(self, l: Listing, body: str, phone: str | None, msg_id: int | None, src, problem: str = "") -> None:
         # No email on the advert: hand the user a ready message for the site's chat.
         note = src.contact_note if src else "This site has no email address for the seller."
         lines = [f"💬 {esc(note)}"]
+        if problem:
+            lines.insert(0, f"⚠️ Automatic message failed ({esc(problem)}), so here it is to send yourself.")
         if phone:
             lines.append(f"📞 The advert lists a phone number: <b>{esc(phone)}</b> (calling is fastest)")
         lines.append(f"\n<pre>{esc(body)}</pre>")
@@ -316,6 +373,12 @@ class Finder:
         elif cmd == "/resume":
             self.store.meta_set("paused", "0")
             self.tg.send_text("▶️ Alerts are back on.")
+        elif cmd == "/code":
+            parts = text.split()
+            if len(parts) >= 2:
+                self._code_value = "".join(ch for ch in parts[1] if ch.isalnum())
+                self._code_event.set()
+                self.tg.send_text("👍 Got the code, logging in…")
         elif cmd == "/test":
             self.send_test_alert()
 

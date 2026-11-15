@@ -14,4 +14,4 @@ primary_region = "lhr"
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "256mb"
+  memory = "1gb"   # headless browser for Pets4Homes chat; 256mb is enough without it

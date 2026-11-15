@@ -181,3 +181,65 @@ def test_contact_seller_refuses_without_yes(tmp_path):
     with pytest.raises(PermissionError):
         f.contact_seller(l, None)
     assert mailer.sent == []
+
+
+class FakeP4H:
+    def __init__(self, ok=True):
+        self.ok = ok
+        self.sent = []
+
+    def send(self, url, text):
+        from maine_coon_finder.p4h_chat import ChatResult
+
+        self.sent.append((url, text))
+        return ChatResult(self.ok, "sent" if self.ok else "chat box didn't open", b"png")
+
+
+def _p4h_listing():
+    return Listing(source="pets4homes", source_id="abc", url="https://www.pets4homes.co.uk/classifieds/abc/",
+                   title="Maine Coon kitten", description="blue boy", price_gbp=800, age_days=70,
+                   images=["https://img/1.jpg"], enriched=True)
+
+
+def _wait_threads():
+    import threading
+    for t in threading.enumerate():
+        if t.name == "p4h-chat":
+            t.join(5)
+
+
+def test_p4h_yes_messages_via_chat_once(tmp_path):
+    l = _p4h_listing()
+    f, tg, mailer, _ = make(tmp_path, [l])
+    f.sources[0].source.name = "pets4homes"
+    f.p4h = FakeP4H()
+    f.scan_source(f.sources[0])
+    assert "message the seller on Pets4Homes" in tg.sent[0]["caption"]
+    assert f.p4h.sent == []  # nothing before Yes
+    tap(f, tg, "y", l.key)
+    tap(f, tg, "y", l.key)
+    _wait_threads()
+    assert len(f.p4h.sent) == 1 and mailer.sent == []
+    assert f.store.get(l.key)["status"] == "contacted"
+
+
+def test_p4h_failure_falls_back_to_paste_message(tmp_path):
+    l = _p4h_listing()
+    f, tg, _, _ = make(tmp_path, [l])
+    f.sources[0].source.name = "pets4homes"
+    f.p4h = FakeP4H(ok=False)
+    f.scan_source(f.sources[0])
+    tap(f, tg, "y", l.key)
+    _wait_threads()
+    assert "Automatic message failed" in tg.sent[-1]["text"] and "<pre>" in tg.sent[-1]["text"]
+
+
+def test_p4h_no_never_messages(tmp_path):
+    l = _p4h_listing()
+    f, tg, _, _ = make(tmp_path, [l])
+    f.sources[0].source.name = "pets4homes"
+    f.p4h = FakeP4H()
+    f.scan_source(f.sources[0])
+    tap(f, tg, "n", l.key)
+    _wait_threads()
+    assert f.p4h.sent == []

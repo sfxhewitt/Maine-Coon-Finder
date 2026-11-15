@@ -37,7 +37,10 @@ every ~3 min, per site
 | Facebook | ❌ | Needs a login; scraping breaks Meta's terms | |
 | Kittenlist | ❌ | Site returns an error page | |
 
-**Important limitation:** UK classified sites hide sellers' email addresses. Yes sends an email only when the seller put an address in the advert text. Otherwise you get the message ready to paste into the site's chat, plus the seller's phone number if they listed one. Automating the sites' chat would mean logging in as you with a bot, which breaks their terms and gets accounts banned, so the finder doesn't do it.
+**Important limitation:** UK classified sites hide sellers' email addresses. Yes sends an email only when the seller put an address in the advert text. Otherwise you get the message ready to paste into the site's chat, plus the seller's phone number if they listed one.
+
+**Optional: Pets4Homes chat as you.** Set `P4H_AUTO_MESSAGE=true` and Yes on a Pets4Homes alert opens a headless browser with your saved login, presses *Message* on the advert, and sends your message. You get a screenshot back on Telegram. If anything goes wrong, you get the paste-ready message instead. ⚠️ Pets4Homes' terms don't allow automated use of accounts, so your account (and any Premium you paid for) could be suspended. It sends at most one message per advert, and only after your Yes.
+Login: either run `python -m maine_coon_finder p4h-login` on your computer (a browser opens and you log in normally; it prints a `P4H_SESSION_B64` value to use as a server secret), or set `P4H_EMAIL` (plus `P4H_PASSWORD` if your account has one) and the bot logs in on its own, asking you on Telegram (`/code 123456`) for the code Pets4Homes emails you. `p4h-check` tells you if the saved login still works.
 
 Each site gets 1 search request per scan, plus one request per *new* advert, with at least 2 seconds between requests to the same site. If a site starts refusing, the finder backs off (5 min, doubling to 1 h) on its own.
 
@@ -104,6 +107,8 @@ Scheduled workflows run at most every 5 minutes, are often delayed by 10-30 minu
 | Telegram | `/status` | Counts and current rules |
 | Telegram | `/pause`, `/resume` | Stop/start checking sites |
 | Telegram | `/test` | Fake alert (Yes on it never emails anyone) |
+| Telegram | `/code 123456` | Give the bot a Pets4Homes login code when it asks |
+| Terminal | `python -m maine_coon_finder p4h-login` | Log in to Pets4Homes once and save the session |
 
 ## Development
 ```bash

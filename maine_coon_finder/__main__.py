@@ -4,6 +4,8 @@
     python -m maine_coon_finder scan-once  # one pass over every site, then exit
     python -m maine_coon_finder preview    # list what each site returns right now (no Claude, no alerts)
     python -m maine_coon_finder test-alert # send a test alert to Telegram
+    python -m maine_coon_finder p4h-login  # log in to Pets4Homes in a browser window, save the session
+    python -m maine_coon_finder p4h-check  # check the saved Pets4Homes login still works
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from .config import Settings
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="maine_coon_finder")
-    ap.add_argument("command", nargs="?", default="run", choices=["run", "scan-once", "preview", "test-alert"])
+    ap.add_argument("command", nargs="?", default="run", choices=["run", "scan-once", "preview", "test-alert", "p4h-login", "p4h-check"])
     ap.add_argument("--env", default=".env", help="path to a .env file (default: .env)")
     args = ap.parse_args(argv)
 
@@ -46,6 +48,18 @@ def main(argv: list[str] | None = None) -> int:
                 price = f"£{l.price_gbp:.0f}" if l.price_gbp else "-"
                 print(f"   {'PASS' if v.ok else 'skip':4} {price:>6}  {l.title[:60]:60}  {v.reason}")
         return 0
+
+    if args.command in ("p4h-login", "p4h-check"):
+        from .p4h_chat import P4HChat, materialise_session
+
+        materialise_session(s.p4h_session_path)
+        chat = P4HChat(s.p4h_session_path, s.p4h_email, s.p4h_password, s.chromium_path)
+        if args.command == "p4h-login":
+            chat.interactive_login()
+            return 0
+        ok = chat.has_session and chat.check()
+        print("Pets4Homes login OK" if ok else "Pets4Homes login missing or expired: run p4h-login")
+        return 0 if ok else 1
 
     from .app import Finder
 
