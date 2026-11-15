@@ -1,4 +1,4 @@
-# Run on your own PC / home server:  docker compose up -d
+# Run on your VPS or own PC:  docker compose up -d   (or use deploy/install.sh)
 services:
   finder:
     build: .
@@ -6,3 +6,10 @@ services:
     env_file: .env
     volumes:
       - ./data:/data
+    # Headless browser (Pets4Homes chat) needs some shared memory.
+    shm_size: "256mb"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

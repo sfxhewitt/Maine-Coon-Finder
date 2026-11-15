@@ -64,20 +64,14 @@ With Gmail: turn on 2-step verification, create an **app password** at <https://
 
 ## Running it
 
-### Option A: Fly.io (recommended, always on, about £2-4/month)
+### Option A: your VPS (recommended)
+On the VPS (Ubuntu/Debian), run:
 ```bash
-# install flyctl: https://fly.io/docs/flyctl/install/
-fly auth signup                      # or: fly auth login
-fly launch --copy-config --no-deploy # pick a unique app name when asked
-fly volumes create finder_data --size 1 --region lhr
-fly secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... ANTHROPIC_API_KEY=... \
-  SMTP_USER=... SMTP_PASSWORD=... BUYER_NAME="..." BUYER_PHONE="..." \
-  HOME_POSTCODE="..." MAX_DISTANCE_MILES=100
-fly deploy
-fly logs                             # watch it work
+curl -fsSL https://raw.githubusercontent.com/sfxhewitt/Maine-Coon-Finder/main/deploy/install.sh | sudo bash
 ```
+It installs Docker if needed, downloads the code to `/opt/maine-coon-finder`, asks for your settings (typed on the VPS, saved to `.env` with owner-only permissions), and starts the finder with `docker compose`. It restarts on its own after crashes and reboots. Run the same command again to update; your settings and data are kept.
 
-### Option B: your own PC or a Raspberry Pi (free, home internet)
+### Option B: your own PC or a Raspberry Pi
 ```bash
 cp .env.example .env   # fill it in
 docker compose up -d   # restarts by itself after reboots
