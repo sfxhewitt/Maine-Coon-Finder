@@ -107,3 +107,31 @@ def score(listing: Listing, a: Assessment | None, s: Settings) -> int:
     if a is not None:
         pts += int(a.confidence * 4)
     return pts
+
+
+# Text-only mode (no ANTHROPIC_API_KEY): only clearly dark-grey wording counts.
+DARK_GREY_TEXT_RE = re.compile(
+    r"\b(blue(\s+smoke)?|gr[ae]y|charcoal|black\s+smoke|slate)\b(?!\s+eyes)", re.I
+)
+NOT_KITTEN_COLOUR_RE = re.compile(r"\b(mum|mother|dad|father|dam|sire|queen|stud)\b[^.\n]{0,40}$", re.I)
+
+
+def text_only_assessment(listing: Listing) -> Assessment:
+    """Fallback when there's no Claude key: decide from the advert's words alone.
+    Misses adverts that only show the colour in photos, so it's a weaker check."""
+    text = listing.text
+    hits = []
+    for m in DARK_GREY_TEXT_RE.finditer(text):
+        before = text[max(0, m.start() - 60):m.start()]
+        if NOT_KITTEN_COLOUR_RE.search(before):
+            continue  # e.g. "mum is a blue smoke"
+        hits.append(m.group(0).lower())
+    found = bool(hits)
+    return Assessment(
+        is_match=found,
+        colour=(", ".join(sorted(set(hits))) + " (from text; photo not checked)") if found else "no dark grey in text",
+        confidence=0.7 if found else 0.0,
+        is_maine_coon=True,
+        is_crossbreed=False,
+        reason="text-only check",
+    )

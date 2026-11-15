@@ -75,3 +75,12 @@ def test_contact_extraction_and_message():
     subject, body = render_message(l, s)
     assert "Hi Jo," in body and "Daniel" in body and l.url in body
     assert "Maine Coon" in subject
+
+
+def test_text_only_fallback():
+    assert filters.text_only_assessment(L(description="One blue smoke boy left")).is_match
+    assert filters.text_only_assessment(L(description="Charcoal grey girl, 10 weeks")).is_match
+    assert not filters.text_only_assessment(L(description="Mum is a blue smoke. Kittens are brown tabby")).is_match
+    assert not filters.text_only_assessment(L(description="Red and cream kittens with blue eyes")).is_match
+    a = filters.text_only_assessment(L(description="grey boy"))
+    assert filters.final_check(L(), a, S).ok

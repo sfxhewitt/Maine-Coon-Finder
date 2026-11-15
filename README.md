@@ -48,8 +48,10 @@ Each site gets 1 search request per scan, plus one request per *new* advert, wit
 2. Send your new bot any message.
 3. Start the finder with only the token set: the bot replies with your chat id. Put it in `TELEGRAM_CHAT_ID` and restart.
 
-### 2. Claude API key
+### 2. Claude API key (recommended, optional)
 Create a key at <https://console.anthropic.com> → `ANTHROPIC_API_KEY`. Only adverts that pass the free checks get a photo check, so cost is small (roughly 2-3p per advert checked; the first run checks the backlog once).
+
+Without a key the finder still runs in **text-only mode**: it alerts only when the advert's words say blue / grey / charcoal / black smoke about the kittens (not just a parent). That misses adverts where the colour only shows in the photos, and alerts say "photo not checked".
 
 ### 3. Email (for the Yes button)
 With Gmail: turn on 2-step verification, create an **app password** at <https://myaccount.google.com/apppasswords>, and set `SMTP_USER` (your address) and `SMTP_PASSWORD` (the app password). Set `BUYER_NAME` and `BUYER_PHONE`. Edit the wording in [`templates/seller_message.txt`](templates/seller_message.txt).

@@ -80,7 +80,10 @@ class Finder:
             if not v.ok:
                 self.store.record(listing, "rejected", v.reason)
                 return "rejected"
-        assessment, used_images = self.checker.assess(listing)
+        if self.checker is not None:
+            assessment, used_images = self.checker.assess(listing)
+        else:
+            assessment, used_images = filters.text_only_assessment(listing), listing.images[:1]
         v = filters.final_check(listing, assessment, self.s)
         if not v.ok:
             self.store.record(listing, "rejected", v.reason, assessment)

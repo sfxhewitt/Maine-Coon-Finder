@@ -159,8 +159,6 @@ class Settings:
             out.append("TELEGRAM_BOT_TOKEN")
         if not self.telegram_chat_id:
             out.append("TELEGRAM_CHAT_ID")
-        if not self.anthropic_api_key:
-            out.append("ANTHROPIC_API_KEY")
         return out
 
     def missing_for_email(self) -> list[str]:
