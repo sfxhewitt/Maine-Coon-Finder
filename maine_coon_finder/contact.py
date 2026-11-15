@@ -16,10 +16,12 @@ IGNORED_EMAIL_DOMAINS = {"pets4homes.co.uk", "gumtree.com", "preloved.co.uk", "e
 
 DEFAULT_TEMPLATE = """Hi${seller_greeting},
 
-I've just seen your advert "${title}" on ${site} and I'd love to buy your dark grey Maine Coon kitten if it's still available.
+I've just seen your advert "${title}" on ${site} and I'd love to give your dark grey Maine Coon kitten a home, if it's still available.
 
-I'm ready to move quickly: I can pay the deposit straight away and arrange to view/collect at a time that suits you.
-Could you let me know if it's still available and the next steps?
+A little about us: we recently had to say goodbye to our cat, Tom, who was with us for 19 wonderful years. The house feels very strange without a kitty around, and we're ready to give all that love to a new companion.
+
+I can move quickly: I'm happy to pay a deposit straight away and arrange to view and collect at a time that suits you.
+Could you let me know if it's still available and what the next steps are?
 
 Advert: ${url}
 
