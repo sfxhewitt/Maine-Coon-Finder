@@ -1,4 +1,5 @@
-FROM python:3.12-slim
+# Bookworm (Debian 12): Playwright 1.49 can install its browser dependencies here (not on trixie).
+FROM python:3.12-slim-bookworm
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 DB_PATH=/data/finder.sqlite3 \
     P4H_SESSION_PATH=/data/p4h_session.json PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 WORKDIR /app
