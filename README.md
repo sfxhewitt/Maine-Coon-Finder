@@ -42,6 +42,8 @@ every ~3 min, per site
 **Optional: Pets4Homes chat as you.** Set `P4H_AUTO_MESSAGE=true` and Yes on a Pets4Homes alert opens a headless browser with your saved login, presses *Message* on the advert, and sends your message. You get a screenshot back on Telegram. If anything goes wrong, you get the paste-ready message instead. ⚠️ Pets4Homes' terms don't allow automated use of accounts, so your account (and any Premium you paid for) could be suspended. It sends at most one message per advert, and only after your Yes.
 Login: either run `python -m maine_coon_finder p4h-login` on your computer (a browser opens and you log in normally; it prints a `P4H_SESSION_B64` value to use as a server secret), or set `P4H_EMAIL` (plus `P4H_PASSWORD` if your account has one) and the bot logs in on its own, asking you on Telegram (`/code 123456`) for the code Pets4Homes emails you. `p4h-check` tells you if the saved login still works.
 
+**Preloved works the same way:** set `PRELOVED_AUTO_MESSAGE=true`, `PRELOVED_EMAIL` and `PRELOVED_PASSWORD`, and Yes fills in the advert's *Contact seller* form for you. **Gumtree can't do this:** its login page blocks automated browsers, so Gumtree alerts always give you the paste-ready message.
+
 Each site gets 1 search request per scan, plus one request per *new* advert, with at least 2 seconds between requests to the same site. If a site starts refusing, the finder backs off (5 min, doubling to 1 h) on its own.
 
 ## Setup

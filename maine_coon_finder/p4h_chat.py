@@ -95,8 +95,8 @@ def _first(page, selectors: list[str], timeout_ms: int = 0):
         time.sleep(0.3)
 
 
-def _dismiss_consent(page) -> None:
-    btn = _first(page, CONSENT, 3000)
+def _dismiss_consent(page, selectors=CONSENT) -> None:
+    btn = _first(page, selectors, 3000)
     if btn:
         try:
             btn.click(timeout=3000)
@@ -124,6 +124,28 @@ def _click(loc) -> None:
 
 
 class P4HChat:
+    """Sends a message through a site's own chat/reply form, logged in as you.
+    Pets4Homes by default; subclasses swap the URLs and selectors."""
+
+    SITE = "Pets4Homes"
+    ENV_PREFIX = "P4H"
+    BASE = BASE
+    LOGIN_URL = LOGIN_URL
+    CONSENT = CONSENT
+    MESSAGE_BUTTON = MESSAGE_BUTTON
+    EMAIL_INPUT = EMAIL_INPUT
+    CONTINUE_BUTTON = CONTINUE_BUTTON
+    PASSWORD_INPUT = PASSWORD_INPUT
+    CODE_INPUT = CODE_INPUT
+    COMPOSER = COMPOSER
+    SEND_BUTTON = SEND_BUTTON
+    SIGN_IN_LINK = SIGN_IN_LINK
+    LOGIN_PATH_MARKERS = ("/login", "/signup")
+    CHECK_PATH = "/chat/"
+
+    def _is_login_page(self, page) -> bool:
+        return any(m in page.url for m in self.LOGIN_PATH_MARKERS)
+
     def __init__(
         self,
         session_path: str,
@@ -176,14 +198,16 @@ class P4HChat:
     def login_headless(self, page) -> None:
         """Log in through the normal form. Needs P4H_EMAIL; asks on Telegram for any code."""
         if not self.email:
-            raise NotLoggedIn("not logged in to Pets4Homes and P4H_EMAIL isn't set (add it to .env and rerun the installer)")
-        page.goto(LOGIN_URL, wait_until="domcontentloaded")
-        _dismiss_consent(page)
-        box = _first(page, EMAIL_INPUT, 15000)
+            raise NotLoggedIn(
+                f"not logged in to {self.SITE} and {self.ENV_PREFIX}_EMAIL isn't set (add it to .env and rerun the installer)"
+            )
+        page.goto(self.LOGIN_URL, wait_until="domcontentloaded")
+        _dismiss_consent(page, self.CONSENT)
+        box = _first(page, self.EMAIL_INPUT, 15000)
         if not box:
             raise P4HChatError("couldn't find the email box on the login page")
         box.fill(self.email)
-        btn = _first(page, CONTINUE_BUTTON, 5000)
+        btn = _first(page, self.CONTINUE_BUTTON, 5000)
         if btn:
             _click(btn)
         else:
@@ -191,23 +215,23 @@ class P4HChat:
         # Next screen is either a password box or a code box.
         deadline = time.monotonic() + 25
         while time.monotonic() < deadline:
-            if not _is_login_page(page):
+            if not self._is_login_page(page):
                 return
-            pw = _first(page, PASSWORD_INPUT)
+            pw = _first(page, self.PASSWORD_INPUT)
             if pw and self.password:
                 pw.fill(self.password)
                 pw.press("Enter")
                 page.wait_for_timeout(4000)
-                if not _is_login_page(page):
+                if not self._is_login_page(page):
                     return
-            code_box = _first(page, CODE_INPUT)
+            code_box = _first(page, self.CODE_INPUT)
             if code_box:
                 if not self.ask_code:
                     raise NotLoggedIn("Pets4Homes wants an emailed code and there's no way to ask you for it")
-                code = self.ask_code("Pets4Homes has emailed you a login code. Reply here with /code 123456")
+                code = self.ask_code(f"{self.SITE} has sent you a login code. Reply here with /code 123456")
                 if not code:
                     raise NotLoggedIn("no login code received in time")
-                boxes = page.locator(CODE_INPUT[0] + ", " + CODE_INPUT[1])
+                boxes = page.locator(self.CODE_INPUT[0] + ", " + self.CODE_INPUT[1])
                 n = boxes.count()
                 if n > 1 and n >= len(code):  # one box per digit
                     for i, ch in enumerate(code):
@@ -216,11 +240,11 @@ class P4HChat:
                     code_box.fill(code)
                 code_box.press("Enter")
                 page.wait_for_timeout(5000)
-                if not _is_login_page(page):
+                if not self._is_login_page(page):
                     return
                 raise NotLoggedIn("the login code didn't work")
             page.wait_for_timeout(500)
-        if _is_login_page(page):
+        if self._is_login_page(page):
             raise NotLoggedIn("couldn't get past the Pets4Homes login page")
 
     def interactive_login(self) -> None:
@@ -231,12 +255,12 @@ class P4HChat:
             browser = self._launch(p, headless=False)
             ctx = self._context(browser)
             page = ctx.new_page()
-            page.goto(LOGIN_URL)
-            input("Log in to Pets4Homes in the browser window, then press Enter here... ")
+            page.goto(self.LOGIN_URL)
+            input(f"Log in to {self.SITE} in the browser window, then press Enter here... ")
             self._save(ctx)
             browser.close()
         print(f"Saved login to {self.session_path}")
-        print("For a server, set this as the P4H_SESSION_B64 secret:")
+        print(f"For a server, set this as the {self.ENV_PREFIX}_SESSION_B64 secret:")
         print(base64.b64encode(self.session_path.read_bytes()).decode())
 
     def check(self) -> bool:
@@ -248,9 +272,9 @@ class P4HChat:
             ctx = self._context(browser)
             page = ctx.new_page()
             try:
-                page.goto(BASE + "/chat/", wait_until="domcontentloaded")
+                page.goto(self.BASE + self.CHECK_PATH, wait_until="domcontentloaded")
                 page.wait_for_timeout(3000)
-                ok = not _is_login_page(page)
+                ok = not self._is_login_page(page)
                 if ok:
                     self._save(ctx)
                 return ok
@@ -267,36 +291,36 @@ class P4HChat:
             page = ctx.new_page()
             shot = None
             try:
-                page.goto(BASE + "/", wait_until="domcontentloaded")
-                _dismiss_consent(page)
+                page.goto(self.BASE + "/", wait_until="domcontentloaded")
+                _dismiss_consent(page, self.CONSENT)
                 page.wait_for_timeout(2000)
-                if _looks_logged_out(page):
-                    log.info("Pets4Homes: not logged in, logging in first")
+                if _first(page, self.SIGN_IN_LINK) is not None:
+                    log.info("%s: not logged in, logging in first", self.SITE)
                     self.login_headless(page)
                     self._save(ctx)
                 page.goto(advert_url, wait_until="domcontentloaded")
-                _dismiss_consent(page)
-                btn = _first(page, MESSAGE_BUTTON, 15000)
+                _dismiss_consent(page, self.CONSENT)
+                btn = _first(page, self.MESSAGE_BUTTON, 15000)
                 if not btn:
                     raise P4HChatError("no Message button on the advert (sold, removed, or page changed)")
                 _click(btn)
                 page.wait_for_timeout(3000)
-                if _is_login_page(page):
+                if self._is_login_page(page):
                     self.login_headless(page)
                     self._save(ctx)
                     page.goto(advert_url, wait_until="domcontentloaded")
-                    _dismiss_consent(page)
-                    btn = _first(page, MESSAGE_BUTTON, 15000)
+                    _dismiss_consent(page, self.CONSENT)
+                    btn = _first(page, self.MESSAGE_BUTTON, 15000)
                     if not btn:
                         raise P4HChatError("no Message button after logging in")
                     _click(btn)
                     page.wait_for_timeout(3000)
-                box = _first(page, COMPOSER, 20000)
+                box = _first(page, self.COMPOSER, 20000)
                 if not box:
                     raise P4HChatError("the chat box didn't open (maybe Premium-only, or a litter picker needs choosing)")
                 box.click()
                 box.fill(text)
-                send_btn = _first(page, SEND_BUTTON, 3000)
+                send_btn = _first(page, self.SEND_BUTTON, 3000)
                 if send_btn:
                     _click(send_btn)
                 else:
@@ -304,8 +328,12 @@ class P4HChat:
                 page.wait_for_timeout(3000)
                 # Confirm: the first line of our message should now be in the conversation.
                 first_line = next((ln for ln in text.splitlines() if len(ln.strip()) > 12), text)[:40]
-                sent = page.get_by_text(first_line, exact=False).count() > 0
-                composer_now = _first(page, COMPOSER)
+                import re as _re
+
+                sent = page.get_by_text(first_line, exact=False).count() > 0 or page.get_by_text(
+                    _re.compile(r"message (has been |was )?sent|thanks for your message|reply sent", _re.I)
+                ).count() > 0
+                composer_now = _first(page, self.COMPOSER)
                 still_in_box = False
                 if composer_now:
                     try:
@@ -315,7 +343,7 @@ class P4HChat:
                 shot = page.screenshot(full_page=False)
                 self._save(ctx)  # keep refreshed login tokens
                 if sent and not still_in_box:
-                    return ChatResult(True, "message sent in Pets4Homes chat", shot)
+                    return ChatResult(True, f"message sent on {self.SITE}", shot)
                 return ChatResult(False, "couldn't confirm the message went through", shot)
             except P4HChatError as e:
                 try:
@@ -327,9 +355,85 @@ class P4HChat:
                 browser.close()
 
 
-def materialise_session(session_path: str) -> None:
-    """On a server, write the session file from the P4H_SESSION_B64 secret once."""
-    b64 = os.environ.get("P4H_SESSION_B64", "").strip()
+class PrelovedChat(P4HChat):
+    """Preloved: 'Contact seller' opens a reply form. Login is email + password."""
+
+    SITE = "Preloved"
+    ENV_PREFIX = "PRELOVED"
+    BASE = "https://www.preloved.co.uk"
+    LOGIN_URL = "https://secure.preloved.co.uk/login"
+    CONSENT = ["#onetrust-accept-btn-handler", "button:has-text('I Accept')", "button:has-text('Accept')"]
+    MESSAGE_BUTTON = [
+        "button.classified-contact",
+        "button:has-text('Contact seller')",
+        "a.classified-sidebar--contact",
+        "a:has-text('Contact seller')",
+    ]
+    EMAIL_INPUT = ["#email", "input[name='email']", "input[type='email']"]
+    CONTINUE_BUTTON = ["#confirmLogInButton", "button:has-text('Log in')"]
+    PASSWORD_INPUT = ["#password", "input[type='password']"]
+    COMPOSER = [
+        "form textarea[name*='message' i]",
+        "textarea[name*='message' i]",
+        "[role='dialog'] textarea",
+        "form textarea",
+        "textarea",
+    ]
+    SEND_BUTTON = [
+        "[role='dialog'] button[type='submit']",
+        "button:has-text('Send message')",
+        "button:has-text('Send')",
+        "form button[type='submit']",
+    ]
+    SIGN_IN_LINK = ["header a:has-text('Log in')", "a[href*='secure.preloved.co.uk/login']:visible"]
+    LOGIN_PATH_MARKERS = ("secure.preloved.co.uk/login", "/join")
+    CHECK_PATH = "/"
+
+    def send(self, advert_url: str, text: str) -> ChatResult:
+        # Older alerts stored the URL without a slug, which Preloved 404s.
+        import re as _re
+
+        if _re.search(r"/adverts/show/\d+/?$", advert_url):
+            advert_url = advert_url.rstrip("/") + "/advert"
+        return super().send(advert_url, text)
+
+    def login_headless(self, page) -> None:
+        if not self.email or not self.password:
+            raise NotLoggedIn(
+                "not logged in to Preloved: set PRELOVED_EMAIL and PRELOVED_PASSWORD in .env and rerun the installer"
+            )
+        page.goto(self.LOGIN_URL, wait_until="domcontentloaded")
+        _dismiss_consent(page, self.CONSENT)
+        email = _first(page, self.EMAIL_INPUT, 15000)
+        pw = _first(page, self.PASSWORD_INPUT, 5000)
+        if not email or not pw:
+            raise P4HChatError("couldn't find the Preloved login form")
+        email.fill(self.email)
+        pw.fill(self.password)
+        btn = _first(page, self.CONTINUE_BUTTON, 3000)
+        if btn:
+            _click(btn)
+        else:
+            pw.press("Enter")
+        page.wait_for_timeout(6000)
+        code_box = _first(page, self.CODE_INPUT)
+        if code_box and self.ask_code:
+            code = self.ask_code("Preloved has sent you a login code. Reply here with /code 123456")
+            if not code:
+                raise NotLoggedIn("no login code received in time")
+            code_box.fill(code)
+            code_box.press("Enter")
+            page.wait_for_timeout(5000)
+        if self._is_login_page(page):
+            raise NotLoggedIn("Preloved didn't accept the login (check PRELOVED_EMAIL / PRELOVED_PASSWORD)")
+
+
+CHAT_CLASSES = {"pets4homes": P4HChat, "preloved": PrelovedChat}
+
+
+def materialise_session(session_path: str, env_prefix: str = "P4H") -> None:
+    """On a server, write the session file from the <PREFIX>_SESSION_B64 secret once."""
+    b64 = os.environ.get(f"{env_prefix}_SESSION_B64", "").strip()
     path = Path(session_path)
     if b64 and not path.is_file():
         path.parent.mkdir(parents=True, exist_ok=True)

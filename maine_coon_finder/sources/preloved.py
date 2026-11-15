@@ -5,6 +5,7 @@ Sellers are contacted through Preloved's reply form (login needed)."""
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Iterable
 
@@ -14,6 +15,11 @@ from .base import Source, parse_age_text
 BASE = "https://www.preloved.co.uk"
 API = BASE + "/account/api/classifieds?q=maine+coon&advertType=forsale&sectionId=3358"
 PAGE_SIZE = 20
+
+
+def _slug(title: str) -> str:
+    s = re.sub(r"[^a-z0-9\s-]", "", (title or "").lower())
+    return re.sub(r"[\s-]+", "-", s).strip("-") or "advert"
 
 
 def _dt(s: str | None) -> datetime | None:
@@ -43,7 +49,8 @@ class Preloved(Source):
             yield Listing(
                 source=self.name,
                 source_id=str(ad["id"]),
-                url=f"{BASE}/adverts/show/{ad['id']}",
+                # The site 404s without a slug (any slug works).
+                url=f"{BASE}/adverts/show/{ad['id']}/{_slug(ad.get('title', ''))}",
                 title=(ad.get("title") or "").strip(),
                 description=(ad.get("shortDescription") or "").strip(),
                 price_gbp=(ad.get("price") or {}).get("value") or None,

@@ -59,3 +59,10 @@ def test_parsers():
     assert parse_price("£1,250.00") == 1250.0
     assert parse_price("0") is None
     assert parse_price(None) is None
+
+
+def test_preloved_url_has_slug():
+    from conftest import FakeHttp as _F
+    l = list(Preloved(_F({"/account/api/classifieds": "preloved_search.json"})).search(1))[0]
+    import re
+    assert re.search(r"/adverts/show/\d+/[a-z0-9-]+$", l.url)

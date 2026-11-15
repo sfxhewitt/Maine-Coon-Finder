@@ -113,6 +113,10 @@ class Settings:
     p4h_email: str = ""
     p4h_password: str = ""
     p4h_session_path: str = "data/p4h_session.json"
+    preloved_auto_message: bool = False
+    preloved_email: str = ""
+    preloved_password: str = ""
+    preloved_session_path: str = "data/preloved_session.json"
     chromium_path: str = ""
 
     # --- Storage / modes ---
@@ -159,6 +163,10 @@ class Settings:
             p4h_email=_get("P4H_EMAIL"),
             p4h_password=_get("P4H_PASSWORD"),
             p4h_session_path=_get("P4H_SESSION_PATH", d.p4h_session_path),
+            preloved_auto_message=_bool("PRELOVED_AUTO_MESSAGE", d.preloved_auto_message),
+            preloved_email=_get("PRELOVED_EMAIL"),
+            preloved_password=_get("PRELOVED_PASSWORD"),
+            preloved_session_path=_get("PRELOVED_SESSION_PATH", d.preloved_session_path),
             chromium_path=_get("CHROMIUM_PATH"),
             db_path=_get("DB_PATH", d.db_path),
             dry_run=_bool("DRY_RUN", d.dry_run),

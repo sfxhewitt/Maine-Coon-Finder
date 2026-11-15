@@ -61,14 +61,22 @@ class Finder:
         self._stop = threading.Event()
         self._code_event = threading.Event()
         self._code_value: str | None = None
-        self.p4h = None
-        if s.p4h_auto_message:
-            from .p4h_chat import P4HChat, materialise_session
+        # Sites where Yes sends the message through the site's own chat, logged in as you.
+        self.chats: dict = {}
+        if s.p4h_auto_message or s.preloved_auto_message:
+            from .p4h_chat import P4HChat, PrelovedChat, materialise_session
 
-            materialise_session(s.p4h_session_path)
-            self.p4h = P4HChat(
-                s.p4h_session_path, s.p4h_email, s.p4h_password, s.chromium_path, ask_code=self._ask_code
-            )
+            if s.p4h_auto_message:
+                materialise_session(s.p4h_session_path, "P4H")
+                self.chats["pets4homes"] = P4HChat(
+                    s.p4h_session_path, s.p4h_email, s.p4h_password, s.chromium_path, ask_code=self._ask_code
+                )
+            if s.preloved_auto_message:
+                materialise_session(s.preloved_session_path, "PRELOVED")
+                self.chats["preloved"] = PrelovedChat(
+                    s.preloved_session_path, s.preloved_email, s.preloved_password, s.chromium_path,
+                    ask_code=self._ask_code,
+                )
 
     # ------------------------------------------------------------------ scan
     @property
@@ -190,8 +198,8 @@ class Finder:
         email = find_email(l)
         if email:
             lines.append("📧 Yes will email the seller")
-        elif l.source == "pets4homes" and self.p4h is not None:
-            lines.append("💬 Yes will message the seller on Pets4Homes as you")
+        elif l.source in self.chats:
+            lines.append(f"💬 Yes will message the seller on {self.chats[l.source].SITE} as you")
         else:
             lines.append("💬 Yes gives you a ready-to-paste message (site has no email)")
         return "\n".join(lines)
@@ -285,34 +293,36 @@ class Finder:
             extra = f"\n📞 Their number from the advert: {esc(phone)}" if phone else ""
             self.tg.send_text(f"✅ Email sent to {esc(email)}.{extra}", reply_to=msg_id)
             return
-        if l.source == "pets4homes" and self.p4h is not None:
+        if l.source in self.chats:
             # Runs in its own thread: it may need to ask you for a login code over Telegram,
             # and the Telegram thread has to stay free to receive your reply.
             threading.Thread(
-                target=self._p4h_message, args=(l, body, phone, msg_id), name="p4h-chat", daemon=True
+                target=self._site_message, args=(l, body, phone, msg_id), name="site-chat", daemon=True
             ).start()
             return
         self._manual_contact(l, body, phone, msg_id, src)
 
-    def _p4h_message(self, l: Listing, body: str, phone: str | None, msg_id: int | None) -> None:
+    def _site_message(self, l: Listing, body: str, phone: str | None, msg_id: int | None) -> None:
+        chat = self.chats[l.source]
+        site = chat.SITE
         try:
-            res = self.p4h.send(l.url, body)
+            res = chat.send(l.url, body)
         except Exception as e:  # noqa: BLE001
-            log.exception("Pets4Homes chat failed")
+            log.exception("%s chat failed", site)
             from .p4h_chat import ChatResult
 
             res = ChatResult(False, str(e)[:300])
         if res.ok:
-            self.store.set_status(l.key, "contacted", "p4h chat")
-            self._mark(msg_id, l, "✅ Messaged the seller on Pets4Homes")
+            self.store.set_status(l.key, "contacted", f"{l.source} chat")
+            self._mark(msg_id, l, f"✅ Messaged the seller on {site}")
             extra = f"\n📞 Their number from the advert: {esc(phone)}" if phone else ""
             if res.screenshot:
-                self.tg.send_photo(res.screenshot, f"✅ Sent on Pets4Homes chat as you.{extra}")
+                self.tg.send_photo(res.screenshot, f"✅ Sent on {site} as you.{extra}")
             else:
-                self.tg.send_text(f"✅ Sent on Pets4Homes chat as you.{extra}", reply_to=msg_id)
+                self.tg.send_text(f"✅ Sent on {site} as you.{extra}", reply_to=msg_id)
             return
         if res.screenshot:
-            self.tg.send_photo(res.screenshot, f"⚠️ Pets4Homes chat didn't work: {esc(res.detail)}")
+            self.tg.send_photo(res.screenshot, f"⚠️ {site} message didn't work: {esc(res.detail)}")
         src = next((st.source for st in self.sources if st.source.name == l.source), None)
         self._manual_contact(l, body, phone, msg_id, src, problem=res.detail)
 

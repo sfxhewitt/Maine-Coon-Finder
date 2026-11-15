@@ -184,6 +184,8 @@ def test_contact_seller_refuses_without_yes(tmp_path):
 
 
 class FakeP4H:
+    SITE = "Pets4Homes"
+
     def __init__(self, ok=True):
         self.ok = ok
         self.sent = []
@@ -204,7 +206,7 @@ def _p4h_listing():
 def _wait_threads():
     import threading
     for t in threading.enumerate():
-        if t.name == "p4h-chat":
+        if t.name == "site-chat":
             t.join(5)
 
 
@@ -212,14 +214,14 @@ def test_p4h_yes_messages_via_chat_once(tmp_path):
     l = _p4h_listing()
     f, tg, mailer, _ = make(tmp_path, [l])
     f.sources[0].source.name = "pets4homes"
-    f.p4h = FakeP4H()
+    f.chats["pets4homes"] = FakeP4H()
     f.scan_source(f.sources[0])
     assert "message the seller on Pets4Homes" in tg.sent[0]["caption"]
-    assert f.p4h.sent == []  # nothing before Yes
+    assert f.chats["pets4homes"].sent == []  # nothing before Yes
     tap(f, tg, "y", l.key)
     tap(f, tg, "y", l.key)
     _wait_threads()
-    assert len(f.p4h.sent) == 1 and mailer.sent == []
+    assert len(f.chats["pets4homes"].sent) == 1 and mailer.sent == []
     assert f.store.get(l.key)["status"] == "contacted"
 
 
@@ -227,7 +229,7 @@ def test_p4h_failure_falls_back_to_paste_message(tmp_path):
     l = _p4h_listing()
     f, tg, _, _ = make(tmp_path, [l])
     f.sources[0].source.name = "pets4homes"
-    f.p4h = FakeP4H(ok=False)
+    f.chats["pets4homes"] = FakeP4H(ok=False)
     f.scan_source(f.sources[0])
     tap(f, tg, "y", l.key)
     _wait_threads()
@@ -238,8 +240,8 @@ def test_p4h_no_never_messages(tmp_path):
     l = _p4h_listing()
     f, tg, _, _ = make(tmp_path, [l])
     f.sources[0].source.name = "pets4homes"
-    f.p4h = FakeP4H()
+    f.chats["pets4homes"] = FakeP4H()
     f.scan_source(f.sources[0])
     tap(f, tg, "n", l.key)
     _wait_threads()
-    assert f.p4h.sent == []
+    assert f.chats["pets4homes"].sent == []

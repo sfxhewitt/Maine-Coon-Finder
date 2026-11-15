@@ -75,6 +75,9 @@ if [ ! -f .env ]; then
   ask MAX_PRICE_GBP "Max price £" "1000"
   ask P4H_AUTO_MESSAGE "Send the Pets4Homes chat message as you on Yes? (true/false)" "false"
   ask P4H_EMAIL "Pets4Homes login email (only if the line above is true)"
+  ask PRELOVED_AUTO_MESSAGE "Send the Preloved reply as you on Yes? (true/false)" "false"
+  ask PRELOVED_EMAIL "Preloved login email (only if the line above is true)"
+  ask PRELOVED_PASSWORD "Preloved password (only if the line above is true)" "" secret
   cat >> .env <<'EOF'
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
