@@ -82,9 +82,12 @@ def _first(page, selectors: list[str], timeout_ms: int = 0):
     while True:
         for sel in selectors:
             try:
-                loc = page.locator(sel).first
-                if loc.count() and loc.is_visible():
-                    return loc
+                matches = page.locator(sel)
+                # Pages often have a hidden mobile copy first; take the first VISIBLE one.
+                for i in range(min(matches.count(), 10)):
+                    loc = matches.nth(i)
+                    if loc.is_visible():
+                        return loc
             except Exception:  # noqa: BLE001 - bad selector on this page version
                 continue
         if time.monotonic() >= deadline:
@@ -101,8 +104,23 @@ def _dismiss_consent(page) -> None:
             pass
 
 
+SIGN_IN_LINK = ["header a:has-text('Sign in')", "header button:has-text('Sign in')", "a:has-text('Sign in')"]
+
+
 def _is_login_page(page) -> bool:
     return "/login" in page.url or "/signup" in page.url
+
+
+def _looks_logged_out(page) -> bool:
+    return _first(page, SIGN_IN_LINK) is not None
+
+
+def _click(loc) -> None:
+    try:
+        loc.scroll_into_view_if_needed(timeout=5000)
+        loc.click(timeout=8000)
+    except Exception:  # noqa: BLE001 - a banner is covering it; click anyway
+        loc.click(timeout=8000, force=True)
 
 
 class P4HChat:
@@ -158,7 +176,7 @@ class P4HChat:
     def login_headless(self, page) -> None:
         """Log in through the normal form. Needs P4H_EMAIL; asks on Telegram for any code."""
         if not self.email:
-            raise NotLoggedIn("Pets4Homes login has expired and P4H_EMAIL isn't set")
+            raise NotLoggedIn("not logged in to Pets4Homes and P4H_EMAIL isn't set (add it to .env and rerun the installer)")
         page.goto(LOGIN_URL, wait_until="domcontentloaded")
         _dismiss_consent(page)
         box = _first(page, EMAIL_INPUT, 15000)
@@ -167,7 +185,7 @@ class P4HChat:
         box.fill(self.email)
         btn = _first(page, CONTINUE_BUTTON, 5000)
         if btn:
-            btn.click()
+            _click(btn)
         else:
             box.press("Enter")
         # Next screen is either a password box or a code box.
@@ -251,12 +269,17 @@ class P4HChat:
             try:
                 page.goto(BASE + "/", wait_until="domcontentloaded")
                 _dismiss_consent(page)
+                page.wait_for_timeout(2000)
+                if _looks_logged_out(page):
+                    log.info("Pets4Homes: not logged in, logging in first")
+                    self.login_headless(page)
+                    self._save(ctx)
                 page.goto(advert_url, wait_until="domcontentloaded")
                 _dismiss_consent(page)
                 btn = _first(page, MESSAGE_BUTTON, 15000)
                 if not btn:
                     raise P4HChatError("no Message button on the advert (sold, removed, or page changed)")
-                btn.click()
+                _click(btn)
                 page.wait_for_timeout(3000)
                 if _is_login_page(page):
                     self.login_headless(page)
@@ -266,7 +289,7 @@ class P4HChat:
                     btn = _first(page, MESSAGE_BUTTON, 15000)
                     if not btn:
                         raise P4HChatError("no Message button after logging in")
-                    btn.click()
+                    _click(btn)
                     page.wait_for_timeout(3000)
                 box = _first(page, COMPOSER, 20000)
                 if not box:
@@ -275,7 +298,7 @@ class P4HChat:
                 box.fill(text)
                 send_btn = _first(page, SEND_BUTTON, 3000)
                 if send_btn:
-                    send_btn.click()
+                    _click(send_btn)
                 else:
                     box.press("Enter")
                 page.wait_for_timeout(3000)
