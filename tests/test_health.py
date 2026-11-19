@@ -161,3 +161,17 @@ def test_vision_retries_without_photos_when_one_is_unreadable():
                                    http_client=httpx2.Client(transport=httpx2.MockTransport(handler)))
     a, used = c.assess(listing())
     assert calls == [True, False] and a.is_match and used == []
+
+
+def test_raising_price_cap_rechecks_adverts_turned_down_for_price(tmp_path):
+    cheap_enough = listing("1"); cheap_enough.price_gbp = 1200
+    too_dear = listing("2"); too_dear.price_gbp = 1800
+    f, _, _, _ = make(tmp_path, [cheap_enough, too_dear])
+    f.s.max_price_gbp = 1000
+    f.store.meta_set("max_price_gbp", "1000")
+    f.scan_source(f.sources[0])
+    assert f.store.get(cheap_enough.key)["status"] == "rejected"
+    f2, _, _, _ = make(tmp_path, [cheap_enough, too_dear])  # restarted with the default £1500 cap
+    assert f2.store.get(cheap_enough.key)["status"] == "error"  # queued for another look
+    assert f2.store.get(too_dear.key)["status"] == "rejected"
+    assert f2.scan_source(f2.sources[0]) == {"notified": 1, "seen": 1}

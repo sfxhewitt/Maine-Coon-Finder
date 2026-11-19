@@ -91,6 +91,7 @@ class Finder:
         self._code_event = threading.Event()
         self._code_value: str | None = None
         self.claude_problem: str = ""  # set while the photo check can't run
+        self._recheck_after_price_change()
         # Adverts that failed before this version get one more chance.
         if self.store.meta_get("requeued_errors_v2") != "1":
             n = self.store.requeue("status='error'")
@@ -240,6 +241,24 @@ class Finder:
             except Exception:  # noqa: BLE001
                 log.exception("daily summary failed")
             self._stop.wait(5)
+
+    def _recheck_after_price_change(self) -> None:
+        """If the price cap went up, adverts turned down only for price get another look."""
+        cap = self.s.max_price_gbp
+        old = self.store.meta_get("max_price_gbp")
+        self.store.meta_set("max_price_gbp", str(cap))
+        if old is None or float(old) >= cap:
+            return
+        keys = [
+            r["key"]
+            for r in self.store._db.execute(
+                "SELECT key, reason FROM listings WHERE status='rejected' AND reason LIKE 'price £% over cap'"
+            ).fetchall()
+            if float(r["reason"].split("£")[1].split()[0].replace(",", "")) <= cap
+        ]
+        for k in keys:
+            self.store.requeue("key=?", (k,))
+        log.info("Price cap raised to £%.0f: re-checking %d adverts turned down for price", cap, len(keys))
 
     # ------------------------------------------------------------ health
     def _warn(self, key: str, text: str) -> None:

@@ -25,8 +25,8 @@ def test_prefilter_hard_rules():
     assert not filters.prefilter(L(title="Ragdoll kittens"), S, None).ok
     assert not filters.prefilter(L(title="Maine coon x ragdoll kittens"), S, None).ok
     assert not filters.prefilter(L(title="Half maine coon half siberian"), S, None).ok
-    assert not filters.prefilter(L(price_gbp=1200), S, None).ok
-    assert filters.prefilter(L(price_gbp=1000), S, None).ok
+    assert not filters.prefilter(L(price_gbp=1600), S, None).ok
+    assert filters.prefilter(L(price_gbp=1500), S, None).ok
     assert filters.prefilter(L(price_gbp=None), S, None).ok  # unknown price is allowed through
     assert not filters.prefilter(L(age_days=400), S, None).ok
     assert not filters.prefilter(L(description="She is 3 years old"), S, None).ok

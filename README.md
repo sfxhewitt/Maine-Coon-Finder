@@ -9,7 +9,7 @@ every ~3 min, per site
   Pets4Homes / Gumtree / Preloved  ──▶  new advert?  (SQLite remembers everything already seen)
         │
         ▼
-  free checks: Maine Coon? not a cross? under 1 year? ≤ £1000? within distance? not sold?
+  free checks: Maine Coon? not a cross? under 1 year? ≤ £1500? within distance? not sold?
         │
         ▼
   Claude looks at up to 4 photos + the text: is there a DARK GREY kitten?
@@ -62,7 +62,7 @@ Without a key the finder still runs in **text-only mode**: it alerts only when t
 With Gmail: turn on 2-step verification, create an **app password** at <https://myaccount.google.com/apppasswords>, and set `SMTP_USER` (your address) and `SMTP_PASSWORD` (the app password). Set `BUYER_NAME` and `BUYER_PHONE`. Edit the wording in [`templates/seller_message.txt`](templates/seller_message.txt).
 
 ### 4. Your search
-`HOME_POSTCODE` + `MAX_DISTANCE_MILES` limit by distance (blank = whole UK). Prices: `MAX_PRICE_GBP` (hard cap, default 1000) and `PREFERRED_PRICE_GBP` (gets a ⭐, default 500). All settings are in [`.env.example`](.env.example).
+`HOME_POSTCODE` + `MAX_DISTANCE_MILES` limit by distance (blank = whole UK). Prices: `MAX_PRICE_GBP` (hard cap, default 1500) and `PREFERRED_PRICE_GBP` (gets a ⭐, default 500). All settings are in [`.env.example`](.env.example).
 
 ## Running it
 

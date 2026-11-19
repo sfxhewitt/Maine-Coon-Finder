@@ -72,7 +72,7 @@ if [ ! -f .env ]; then
   ask BUYER_PHONE "Your phone number (optional)"
   ask HOME_POSTCODE "Your postcode (optional: blank = whole UK)"
   ask MAX_DISTANCE_MILES "Max distance in miles (optional)"
-  ask MAX_PRICE_GBP "Max price £" "1000"
+  ask MAX_PRICE_GBP "Max price £" "1500"
   ask P4H_AUTO_MESSAGE "Send the Pets4Homes chat message as you on Yes? (true/false)" "false"
   ask P4H_EMAIL "Pets4Homes login email (only if the line above is true)"
   ask PRELOVED_AUTO_MESSAGE "Send the Preloved reply as you on Yes? (true/false)" "false"

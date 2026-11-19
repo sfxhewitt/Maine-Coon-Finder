@@ -79,7 +79,7 @@ class Settings:
     email_template_path: str = "templates/seller_message.txt"
 
     # --- Search rules ---
-    max_price_gbp: float = 1000.0  # hard cap
+    max_price_gbp: float = 1500.0  # hard cap
     preferred_price_gbp: float = 500.0  # nice-to-have
     max_age_days: int = 365  # hard rule: under 1 year
     home_postcode: str = ""  # e.g. "LS1 4AP"; blank = whole UK
