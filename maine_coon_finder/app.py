@@ -8,6 +8,7 @@ import random
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from . import filters
 from .config import Settings
@@ -22,6 +23,32 @@ from .store import Store, listing_from_json
 from .telegram import Telegram, TelegramError, esc
 
 log = logging.getLogger(__name__)
+
+WARN_EVERY_SECONDS = 6 * 3600
+TEXT_ONLY_FALLBACK = "text only, photo check unavailable"
+
+
+class _ClaudeBusyStop(Exception):
+    """Stop this site's pass for now; the photo check is temporarily overloaded."""
+
+
+def _ago(iso: str | None) -> str:
+    if not iso:
+        return "never"
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError:
+        return iso
+    secs = (datetime.now(timezone.utc) - dt).total_seconds()
+    if secs < 3600:
+        return f"{max(secs // 60, 0):.0f} min ago"
+    if secs < 172800:
+        return f"{secs // 3600:.0f} h ago"
+    return f"{secs // 86400:.0f} days ago"
+
+
+def _since(hours: float) -> str:
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
 
 HEALTH_LABELS = {
     "vaccinated": "vaccinated",
@@ -39,6 +66,8 @@ class _SourceState:
     next_run: float = 0.0
     backoff: float = 0.0
     backfilled: bool = False
+    last_ok: str | None = None
+    last_problem: str = ""
 
 
 class Finder:
@@ -61,6 +90,13 @@ class Finder:
         self._stop = threading.Event()
         self._code_event = threading.Event()
         self._code_value: str | None = None
+        self.claude_problem: str = ""  # set while the photo check can't run
+        # Adverts that failed before this version get one more chance.
+        if self.store.meta_get("requeued_errors_v2") != "1":
+            n = self.store.requeue("status='error'")
+            self.store.meta_set("requeued_errors_v2", "1")
+            if n:
+                log.info("Giving %d adverts that failed earlier another check", n)
         # Sites where Yes sends the message through the site's own chat, logged in as you.
         self.chats: dict = {}
         if s.p4h_auto_message or s.preloved_auto_message:
@@ -98,13 +134,29 @@ class Finder:
             if not v.ok:
                 self.store.record(listing, "rejected", v.reason)
                 return "rejected"
+        fallback = False
         if self.checker is not None:
-            assessment, used_images = self.checker.assess(listing)
+            from .vision import ClaudeBusy, ClaudeUnavailable
+
+            try:
+                assessment, used_images = self.checker.assess(listing)
+                if self.claude_problem:
+                    self._claude_recovered()
+            except ClaudeUnavailable as e:
+                # Don't go quiet: judge from the words for now, warn, and re-check
+                # these adverts properly once the photo check works again.
+                self._claude_failed(str(e))
+                assessment, used_images = filters.text_only_assessment(listing), listing.images[:1]
+                fallback = True
+            except ClaudeBusy as e:
+                log.warning("Photo check busy (%s); will retry %s next scan", e, listing.url)
+                raise _ClaudeBusyStop(str(e)) from e
         else:
             assessment, used_images = filters.text_only_assessment(listing), listing.images[:1]
         v = filters.final_check(listing, assessment, self.s)
         if not v.ok:
-            self.store.record(listing, "rejected", v.reason, assessment)
+            reason = f"{v.reason} [{TEXT_ONLY_FALLBACK}]" if fallback else v.reason
+            self.store.record(listing, "rejected", reason, assessment)
             log.info("Rejected after photo check (%s): %s", v.reason, listing.url)
             return "rejected"
         msg_id = self.send_alert(listing, assessment, used_images)
@@ -129,11 +181,11 @@ class Finder:
                     continue
                 try:
                     status = self.process(listing, st.source)
-                except BlockedError:
+                except (BlockedError, _ClaudeBusyStop):
                     raise
                 except Exception as e:  # noqa: BLE001 - one bad advert mustn't stop the scan
                     log.exception("Failed on %s", listing.url)
-                    self.store.record(listing, "error", str(e)[:300])
+                    self.store.record(listing, "error", f"{type(e).__name__}: {e}"[:300])
                     status = "error"
                 stats[status] = stats.get(status, 0) + 1
         st.backfilled = True
@@ -145,17 +197,36 @@ class Finder:
         for st in self.sources:
             if self._stop.is_set() or now < st.next_run:
                 continue
+            name = st.source.name
             try:
                 stats = self.scan_source(st)
                 st.backoff = 0
-                log.info("%s scan done: %s", st.source.name, stats or "nothing new")
+                st.last_ok = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                st.last_problem = ""
+                self.store.meta_set(f"last_ok:{name}", st.last_ok)
+                log.info("%s scan done: %s", name, stats or "nothing new")
                 interval = self.s.scan_interval_seconds
+                if stats.get("error", 0) >= 3:
+                    row = self.store.last_error()
+                    self._warn(
+                        "errors",
+                        f"⚠️ {stats['error']} adverts on {name} failed to process just now."
+                        + (f"\nLatest: <code>{esc((row['reason'] or '')[:250])}</code>" if row else "")
+                        + "\nThey'll be retried on the next scans.",
+                    )
             except BlockedError as e:
                 st.backoff = min(max(st.backoff * 2, 300), 3600)
-                log.warning("%s is blocking us (%s); backing off %ds", st.source.name, e, st.backoff)
+                st.last_problem = f"site refusing us ({e})"
+                log.warning("%s is blocking us (%s); backing off %ds", name, e, st.backoff)
                 interval = st.backoff
-            except Exception:  # noqa: BLE001
-                log.exception("%s scan failed", st.source.name)
+                if st.backoff >= 3600:
+                    self._warn(f"blocked:{name}", f"⚠️ {name} has been refusing the finder for over an hour ({esc(str(e))}). It keeps retrying hourly.")
+            except _ClaudeBusyStop as e:
+                st.last_problem = f"photo check busy ({e})"
+                interval = self.s.scan_interval_seconds
+            except Exception as e:  # noqa: BLE001
+                log.exception("%s scan failed", name)
+                st.last_problem = f"{type(e).__name__}: {e}"[:200]
                 interval = self.s.scan_interval_seconds
             # Jitter so we don't hit sites on an exact beat.
             st.next_run = time.monotonic() + interval * random.uniform(0.85, 1.15)
@@ -164,7 +235,93 @@ class Finder:
         while not self._stop.is_set():
             if not self.paused:
                 self.scan_due_sources()
+            try:
+                self.maybe_daily_summary()
+            except Exception:  # noqa: BLE001
+                log.exception("daily summary failed")
             self._stop.wait(5)
+
+    # ------------------------------------------------------------ health
+    def _warn(self, key: str, text: str) -> None:
+        """Tell the user about a problem, at most every few hours per kind of problem."""
+        log.warning("%s", text)
+        last = float(self.store.meta_get(f"warned:{key}") or 0)
+        if time.time() - last < WARN_EVERY_SECONDS or self.tg is None:
+            return
+        try:
+            self.tg.send_text(text)
+            self.store.meta_set(f"warned:{key}", str(time.time()))
+        except Exception as e:  # noqa: BLE001
+            log.warning("couldn't send warning: %s", e)
+
+    def _claude_failed(self, problem: str) -> None:
+        self.claude_problem = problem
+        self._warn(
+            "claude",
+            "⚠️ <b>The Claude photo check isn't working</b>\n"
+            f"<code>{esc(problem)}</code>\n\n"
+            "Until it's fixed I'm judging adverts from their words only, so I'll miss kittens whose "
+            "colour only shows in the photos. Usual fixes: add credit at console.anthropic.com "
+            "(Billing), or check ANTHROPIC_API_KEY in the .env file on the VPS, then rerun the installer.",
+        )
+
+    def _claude_recovered(self) -> None:
+        self.claude_problem = ""
+        n = self.store.requeue("status='rejected' AND reason LIKE ?", (f"%[{TEXT_ONLY_FALLBACK}]",))
+        log.info("Photo check is working again; re-checking %d adverts", n)
+        if self.tg and n:
+            try:
+                self.tg.send_text(f"✅ The Claude photo check is working again. Re-checking {n} adverts it missed.")
+            except Exception:  # noqa: BLE001
+                pass
+
+    def photo_check_line(self) -> str:
+        if self.checker is None:
+            return "📷 Photo check: off (no Claude key), judging from the advert words only"
+        if self.claude_problem:
+            return f"📷 Photo check: ⚠️ failing ({esc(self.claude_problem[:150])}), using words only"
+        return "📷 Photo check: Claude ✅"
+
+    def maybe_daily_summary(self) -> None:
+        """Once a day, say the finder is alive and what it looked at, so a quiet day
+        is clearly 'no dark grey kittens' rather than 'something is broken'."""
+        if not self.s.daily_summary or self.tg is None or not self.s.telegram_chat_id:
+            return
+        now = datetime.now(timezone.utc)
+        if now.hour < self.s.daily_summary_hour_utc:
+            return
+        today = now.date().isoformat()
+        if self.store.meta_get("daily_summary") == today:
+            return
+        self.store.meta_set("daily_summary", today)
+        self.tg.send_text(self.summary_text(24, heading="🗓 <b>Daily check-in</b>"))
+
+    def summary_text(self, hours: float, heading: str) -> str:
+        since = _since(hours)
+        st = self.store.stats_since(since)
+        new = sum(st.values())
+        alerts = sum(st.get(k, 0) for k in ("notified", "approved", "declined", "contacted"))
+        lines = [heading, self.photo_check_line()]
+        lines.append(f"Last {hours:.0f} h: {new} new adverts, {alerts} alert{'s' if alerts != 1 else ''}")
+        reasons = self.store.top_reasons(since)
+        if reasons:
+            lines.append("Turned down: " + ", ".join(f"{esc(r)} {n}" for r, n in reasons))
+        colours = self.store.colours_seen(since)
+        if colours:
+            lines.append("Colours seen: " + ", ".join(f"{esc(c)} ×{n}" for c, n in colours))
+        if st.get("error"):
+            row = self.store.last_error()
+            lines.append(f"⚠️ {st['error']} failed" + (f", latest: <code>{esc((row['reason'] or '')[:200])}</code>" if row else ""))
+        lines.append(f"Last alert: {_ago(self.store.last_alert_time())}")
+        site_bits = []
+        for s in self.sources:
+            ok = s.last_ok or self.store.meta_get(f"last_ok:{s.source.name}")
+            bit = f"{s.source.name} {_ago(ok)}"
+            if s.last_problem:
+                bit += f" ⚠️ {esc(s.last_problem[:80])}"
+            site_bits.append(bit)
+        lines.append("Last good scan: " + "; ".join(site_bits))
+        return "\n".join(lines)
 
     # ----------------------------------------------------------------- alert
     def caption(self, l: Listing, a: Assessment) -> str:
@@ -183,17 +340,18 @@ class Finder:
         yes = [HEALTH_LABELS[k] for k, v in health.items() if v]
         no = [HEALTH_LABELS[k] for k, v in health.items() if v is False]
         lines = [
-            f"🐈‍⬛ <b>{esc(l.title)}</b>",
+            f"🐈‍⬛ <b>{esc(l.title[:120])}</b>",
             f"💷 {esc(price)}" + (f" · 🎂 {age}" if age else ""),
             f"📍 {esc(where)}",
-            f"🎨 {esc(a.colour)} (confidence {a.confidence:.0%})",
+            f"🎨 {esc((a.colour or '')[:120])} (confidence {a.confidence:.0%})",
         ]
         if yes:
             lines.append("✅ " + esc(", ".join(yes)))
         if no:
             lines.append("⚠️ not: " + esc(", ".join(no)))
         if a.summary:
-            lines.append(f"\n{esc(a.summary)}")
+            summary = a.summary if len(a.summary) <= 350 else a.summary[:347].rsplit(" ", 1)[0] + "…"
+            lines.append(f"\n{esc(summary)}")
         lines.append(f"\n{esc(l.source.title())}" + (f" · {esc(l.seller_type)}" if l.seller_type else ""))
         email = find_email(l)
         if email:
@@ -225,7 +383,14 @@ class Finder:
                 photo, _ = self.http.get_bytes(img_url, max_bytes=9_000_000)
             except Exception:  # noqa: BLE001
                 photo = None
-        msg = self.tg.send_photo(photo, self.caption(l, a), self.keyboard(l), photo_url=None if photo else img_url)
+        caption = self.caption(l, a)
+        try:
+            msg = self.tg.send_photo(photo, caption, self.keyboard(l), photo_url=None if photo else img_url)
+        except TelegramError as e:
+            # A photo Telegram won't take mustn't cost us the alert.
+            log.warning("Photo alert failed (%s); sending it as text", e)
+            msg = self.tg.send_text(caption + (f'\n<a href="{esc(img_url)}">📷 photo</a>' if img_url else ""),
+                                    keyboard=self.keyboard(l))
         return msg["message_id"]
 
     # -------------------------------------------------------------- buttons
@@ -376,6 +541,9 @@ class Finder:
                 + f"\nContacted: {c.get('contacted', 0)} · Skipped: {c.get('declined', 0)}"
                 + f"\nRules: dark grey only, under {self.s.max_age_days // 30} months, max £{self.s.max_price_gbp:.0f}"
                 + (f", within {self.s.max_distance_miles:.0f} miles" if self.s.max_distance_miles and self.home else "")
+                + "\n\n" + self.summary_text(24, heading="<b>Last 24 hours</b>")
+                + "\n\nTurned down in the last 7 days: "
+                + (", ".join(f"{esc(r)} {n}" for r, n in self.store.top_reasons(_since(168), 8)) or "none")
             )
         elif cmd == "/pause":
             self.store.meta_set("paused", "1")

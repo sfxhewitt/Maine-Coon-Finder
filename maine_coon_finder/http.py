@@ -50,7 +50,10 @@ class PoliteClient:
 
     def get_bytes(self, url: str, max_bytes: int = 8_000_000) -> tuple[bytes, str]:
         resp = self.get(url)
-        data = resp.content[:max_bytes]
+        data = resp.content
+        if len(data) > max_bytes:
+            # A cut-off image is a broken image: better to skip it.
+            raise ValueError(f"image too large ({len(data)} bytes)")
         ctype = resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
         return data, ctype
 

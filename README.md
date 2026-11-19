@@ -92,6 +92,14 @@ python -m maine_coon_finder
 ### Why not GitHub Actions?
 Scheduled workflows run at most every 5 minutes, are often delayed by 10-30 minutes at busy times, and can't receive your button taps between runs. For kittens that go within the hour, an always-on worker is the right tool.
 
+## When it goes quiet
+
+Every morning (09:00 UTC) the bot sends a short **daily check-in**: how many new adverts it looked at, why they were turned down, which colours the photo check saw, and when each site was last scanned. A quiet day then clearly means "no dark grey kittens" rather than "something broke". Turn it off with `DAILY_SUMMARY=false`.
+
+If something does break, the bot tells you (at most every 6 hours per problem):
+- **Claude photo check failing** (no credit, wrong key): it switches to judging adverts from their words so you still get alerts, and re-checks those adverts properly once Claude works again.
+- **Adverts failing to process** or **a site refusing the finder** for over an hour.
+
 ## Commands
 
 | Where | Command | What it does |
@@ -100,7 +108,7 @@ Scheduled workflows run at most every 5 minutes, are often delayed by 10-30 minu
 | Terminal | `python -m maine_coon_finder preview` | Show what each site returns right now and which adverts pass the free checks (no Claude, no alerts) |
 | Terminal | `python -m maine_coon_finder scan-once` | One full pass, then exit |
 | Terminal | `python -m maine_coon_finder test-alert` | Send a fake alert so you can see the buttons |
-| Telegram | `/status` | Counts and current rules |
+| Telegram | `/status` | Whether the photo check works, the last 24 h (new adverts, alerts, why adverts were turned down, colours seen, failures) and when each site was last scanned |
 | Telegram | `/pause`, `/resume` | Stop/start checking sites |
 | Telegram | `/test` | Fake alert (Yes on it never emails anyone) |
 | Telegram | `/code 123456` | Give the bot a Pets4Homes login code when it asks |

@@ -123,6 +123,9 @@ class Settings:
     db_path: str = "data/finder.sqlite3"
     dry_run: bool = False  # never actually send email when true
     log_level: str = "INFO"
+    # A once-a-day "still alive" message with what was checked (hour is UTC).
+    daily_summary: bool = True
+    daily_summary_hour_utc: int = 9
 
     @classmethod
     def from_env(cls, dotenv: str | Path = ".env") -> "Settings":
@@ -171,6 +174,8 @@ class Settings:
             db_path=_get("DB_PATH", d.db_path),
             dry_run=_bool("DRY_RUN", d.dry_run),
             log_level=_get("LOG_LEVEL", d.log_level),
+            daily_summary=_bool("DAILY_SUMMARY", d.daily_summary),
+            daily_summary_hour_utc=_int("DAILY_SUMMARY_HOUR_UTC", d.daily_summary_hour_utc),
         )
 
     def missing_for_alerts(self) -> list[str]:

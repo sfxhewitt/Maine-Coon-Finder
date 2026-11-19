@@ -16,6 +16,24 @@ from .models import Assessment, Listing
 
 log = logging.getLogger(__name__)
 
+class ClaudeUnavailable(RuntimeError):
+    """The photo check can't run at all (bad key, no credit, unknown model).
+    Retrying won't help until the settings or the account are fixed."""
+
+
+class ClaudeBusy(RuntimeError):
+    """A temporary problem (rate limit, overload, network). Try again next scan."""
+
+
+def _api_message(e: Exception) -> str:
+    body = getattr(e, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict) and err.get("message"):
+            return str(err["message"])[:200]
+    return str(e)[:200]
+
+
 SUPPORTED_MEDIA = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 
@@ -67,7 +85,7 @@ class ColourChecker:
             if len(blocks) >= self.s.max_images_per_check:
                 break
             try:
-                data, ctype = self.http.get_bytes(url, max_bytes=4_500_000)
+                data, ctype = self.http.get_bytes(url, max_bytes=3_700_000)  # base64 must stay under the 5 MB image limit
             except Exception as e:  # noqa: BLE001 - a bad image shouldn't stop the check
                 log.debug("image fetch failed %s: %s", url, e)
                 continue
@@ -98,9 +116,36 @@ class ColourChecker:
             f"{len(images)} photo(s) attached, in order." if images else "No photos could be loaded.",
         ]
         content = images + [{"type": "text", "text": "\n".join(f for f in facts if f)}]
-        resp = self.client.beta.messages.parse(
+        try:
+            resp = self._ask(content)
+        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError, anthropic.NotFoundError) as e:
+            raise ClaudeUnavailable(_api_message(e)) from e
+        except anthropic.BadRequestError as e:
+            msg = _api_message(e)
+            if any(w in msg.lower() for w in ("credit", "billing", "balance", "model")):
+                raise ClaudeUnavailable(msg) from e
+            if not images or "image" not in msg.lower():
+                raise
+            # One of the photos was unreadable: judge from the text alone rather than give up.
+            log.warning("Claude couldn't read the photos for %s (%s); checking the text only", listing.url, msg)
+            used = []
+            content = [{"type": "text", "text": "\n".join(f for f in facts if f).replace(
+                f"{len(images)} photo(s) attached, in order.", "No photos could be loaded.")}]
+            resp = self._ask(content)
+        except (anthropic.RateLimitError, anthropic.InternalServerError, anthropic.APIConnectionError) as e:
+            raise ClaudeBusy(_api_message(e)) from e
+        except anthropic.APIStatusError as e:
+            if e.status_code in (402, 529) or e.status_code >= 500:
+                raise (ClaudeUnavailable if e.status_code == 402 else ClaudeBusy)(_api_message(e)) from e
+            raise
+        if resp.stop_reason == "refusal" or resp.parsed_output is None:
+            raise RuntimeError(f"Claude gave no usable answer (stop_reason={resp.stop_reason})")
+        return self._to_assessment(resp.parsed_output, used)
+
+    def _ask(self, content: list):
+        return self.client.beta.messages.parse(
             model=self.s.claude_model,
-            max_tokens=4000,
+            max_tokens=16000,
             system=SYSTEM.format(accepted=", ".join(self.s.accepted_colours)),
             messages=[{"role": "user", "content": content}],
             output_format=_ColourResult,
@@ -108,9 +153,8 @@ class ColourChecker:
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
         )
-        if resp.stop_reason == "refusal" or resp.parsed_output is None:
-            raise RuntimeError(f"Claude gave no usable answer (stop_reason={resp.stop_reason})")
-        r: _ColourResult = resp.parsed_output
+
+    def _to_assessment(self, r: _ColourResult, used: list[str]) -> tuple[Assessment, list[str]]:
         idx = r.best_image_index if 0 <= r.best_image_index < len(used) else 0
         return (
             Assessment(

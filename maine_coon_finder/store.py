@@ -137,6 +137,65 @@ class Store:
             "SELECT * FROM listings WHERE status=? ORDER BY updated DESC LIMIT ?", (status, limit)
         ).fetchall()
 
+    # --- diagnostics ---
+    def stats_since(self, since_iso: str) -> dict[str, int]:
+        rows = self._db.execute(
+            "SELECT status, COUNT(*) n FROM listings WHERE first_seen >= ? GROUP BY status", (since_iso,)
+        ).fetchall()
+        return {r["status"]: r["n"] for r in rows}
+
+    def top_reasons(self, since_iso: str, limit: int = 6) -> list[tuple[str, int]]:
+        """Most common reasons adverts were turned down, with prices grouped together."""
+        rows = self._db.execute(
+            "SELECT reason FROM listings WHERE status='rejected' AND updated >= ?", (since_iso,)
+        ).fetchall()
+        out: dict[str, int] = {}
+        for r in rows:
+            reason = r["reason"] or "?"
+            if reason.startswith("price £"):
+                reason = "over the price cap"
+            elif reason.endswith("days old"):
+                reason = "too old"
+            elif reason.endswith("miles away"):
+                reason = "too far away"
+            elif reason.startswith("colour"):
+                reason = "not dark grey"
+            out[reason] = out.get(reason, 0) + 1
+        return sorted(out.items(), key=lambda kv: -kv[1])[:limit]
+
+    def colours_seen(self, since_iso: str, limit: int = 6) -> list[tuple[str, int]]:
+        """What colours the photo check saw on adverts it turned down."""
+        rows = self._db.execute(
+            "SELECT reason FROM listings WHERE status='rejected' AND reason LIKE 'colour: %' AND updated >= ?",
+            (since_iso,),
+        ).fetchall()
+        out: dict[str, int] = {}
+        for r in rows:
+            c = r["reason"][len("colour: "):].strip().lower()[:40]
+            out[c] = out.get(c, 0) + 1
+        return sorted(out.items(), key=lambda kv: -kv[1])[:limit]
+
+    def last_error(self) -> sqlite3.Row | None:
+        return self._db.execute(
+            "SELECT * FROM listings WHERE status='error' ORDER BY updated DESC LIMIT 1"
+        ).fetchone()
+
+    def last_alert_time(self) -> str | None:
+        row = self._db.execute(
+            "SELECT MAX(first_seen) t FROM listings WHERE status IN ('notified','approved','declined','contacted')"
+            " AND source != 'test'"
+        ).fetchone()
+        return row["t"] if row else None
+
+    def requeue(self, where: str, params: tuple = ()) -> int:
+        """Give matching adverts another go: they'll be checked again on the next scan."""
+        with self._lock:
+            cur = self._db.execute(
+                f"UPDATE listings SET status='error', attempts=0, updated=? WHERE {where}", (_now(), *params)
+            )
+            self._db.commit()
+            return cur.rowcount
+
     # --- misc ---
     def meta_get(self, k: str) -> str | None:
         row = self._db.execute("SELECT v FROM meta WHERE k=?", (k,)).fetchone()
