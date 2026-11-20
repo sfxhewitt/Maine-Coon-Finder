@@ -5,6 +5,7 @@ email addresses are not shown."""
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Iterable
 
@@ -43,8 +44,10 @@ def _apply_attrs(listing: Listing, attrs: dict[str, str]) -> None:
     if dob and dob.isdigit():
         born = datetime.fromtimestamp(int(dob) / 1000, tz=timezone.utc)
         listing.age_days = max(0, (datetime.now(timezone.utc) - born).days)
-    if attrs.get("registered"):
-        listing.health["registered"] = True
+    reg = (attrs.get("registered") or "").lower()
+    if reg:
+        # e.g. "pets.cats.registered.tICA"; anything saying not/none/false means unregistered.
+        listing.health["registered"] = not re.search(r"not|none|false|unregistered|\.no$", reg)
     for k, name in HEALTH_KEYS.items():
         if k in attrs:
             listing.health[name] = attrs[k] == "true"

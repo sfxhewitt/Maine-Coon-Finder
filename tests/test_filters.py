@@ -17,7 +17,8 @@ def A(**kw) -> Assessment:
     return Assessment(**base)
 
 
-S = Settings()
+S = Settings(require_pedigree=False)  # pedigree rule has its own test
+P = Settings()
 
 
 def test_prefilter_hard_rules():
@@ -37,7 +38,7 @@ def test_prefilter_hard_rules():
 
 
 def test_prefilter_distance():
-    s = Settings(max_distance_miles=50)
+    s = Settings(max_distance_miles=50, require_pedigree=False)
     assert filters.prefilter(L(), s, 30).ok
     assert not filters.prefilter(L(), s, 120).ok
     assert filters.prefilter(L(), s, None).ok  # unknown distance is let through
@@ -84,3 +85,18 @@ def test_text_only_fallback():
     assert not filters.text_only_assessment(L(description="Red and cream kittens with blue eyes")).is_match
     a = filters.text_only_assessment(L(description="grey boy"))
     assert filters.final_check(L(), a, S).ok
+
+
+def test_pedigree_only():
+    assert filters.prefilter(L(description="TICA registered blue boy"), P, None).ok
+    assert filters.prefilter(L(description="Blue boy, comes with pedigree papers"), P, None).ok
+    assert filters.prefilter(L(description="Blue boy", health={"registered": True}), P, None).ok
+    v = filters.prefilter(L(description="Lovely blue boy"), P, None)
+    assert not v.ok and v.reason == "not stated as pedigree"
+    assert not filters.prefilter(L(description="Blue boy, not registered"), P, None).ok
+    assert not filters.prefilter(L(description="Dad is GCCF registered, mum is not registered"), P, None).ok
+    assert not filters.prefilter(L(description="Non pedigree but beautiful"), P, None).ok
+    # Search-page data (not yet enriched) isn't judged on this.
+    assert filters.prefilter(L(description="Blue boy", enriched=False), P, None).ok
+    from maine_coon_finder.config import Settings as _S
+    assert filters.prefilter(L(description="Lovely blue boy"), _S(require_pedigree=False), None).ok

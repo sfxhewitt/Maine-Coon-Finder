@@ -80,7 +80,7 @@ def make(tmp_path, listings, match=True, mail_fail=False):
     s = Settings(
         telegram_token="t", telegram_chat_id=CHAT, anthropic_api_key="k", db_path=str(tmp_path / "db.sqlite3"),
         buyer_name="Daniel", smtp_user="me@example.com", smtp_password="pw", email_from="me@example.com",
-        sources=["gumtree"], email_template_path="/nonexistent",
+        sources=["gumtree"], email_template_path="/nonexistent", require_pedigree=False,
     )
     tg, mailer, checker = FakeTelegram(), FakeMailer(fail=mail_fail), FakeChecker(match)
     f = Finder(s, colour_checker=checker, telegram=tg, mailer=mailer)

@@ -85,6 +85,8 @@ class Settings:
     home_postcode: str = ""  # e.g. "LS1 4AP"; blank = whole UK
     max_distance_miles: float | None = None  # blank = no limit
     allow_crossbreeds: bool = False
+    # Only pedigree kittens (GCCF/TICA/FIFe registered or pedigree papers stated).
+    require_pedigree: bool = True
     min_colour_confidence: float = 0.6
     # Colours that count as "dark grey" for this search.
     accepted_colours: list[str] = field(
@@ -154,6 +156,7 @@ class Settings:
             home_postcode=_get("HOME_POSTCODE"),
             max_distance_miles=_float("MAX_DISTANCE_MILES", None),
             allow_crossbreeds=_bool("ALLOW_CROSSBREEDS", d.allow_crossbreeds),
+            require_pedigree=_bool("REQUIRE_PEDIGREE", d.require_pedigree),
             min_colour_confidence=_float("MIN_COLOUR_CONFIDENCE", d.min_colour_confidence),
             accepted_colours=_list("ACCEPTED_COLOURS", d.accepted_colours),
             sources=_list("SOURCES", d.sources),

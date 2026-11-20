@@ -25,6 +25,16 @@ NOT_FOR_SALE_RE = re.compile(
 )
 ADULT_RE = re.compile(r"\b([1-9]\d?)\s*(years?|yrs?)\s*old\b", re.I)
 GREYISH_RE = re.compile(r"\b(gr[ae]y|blue|smoke|smokey|smoky|charcoal|slate|silver)\b", re.I)
+PEDIGREE_RE = re.compile(
+    r"\b(pedigree|pedigrees|gccf|tica|fife|registered|registred|registed|reg\.?\s*(with|papers)|"
+    r"(with|full|comes?\s+with)\s+(pedigree\s+)?papers|champion\s+(lines?|bloodlines?))\b",
+    re.I,
+)
+NOT_PEDIGREE_RE = re.compile(
+    r"\b(non[\s\-]*pedigree|not\s+(gccf\s+|tica\s+)?(pedigree|registered)|unregistered|no\s+papers|"
+    r"without\s+papers|not\s+registered|can'?t\s+be\s+registered)\b",
+    re.I,
+)
 SOLD_RE = re.compile(r"\b(all\s+(now\s+)?(sold|reserved)|sold\s+out|no\s+longer\s+available)\b", re.I)
 
 
@@ -58,11 +68,22 @@ def prefilter(listing: Listing, s: Settings, distance_miles: float | None) -> Ve
         and distance_miles > s.max_distance_miles
     ):
         return Verdict(False, f"{distance_miles:.0f} miles away")
+    if s.require_pedigree and listing.enriched and not is_pedigree(listing):
+        return Verdict(False, "not stated as pedigree")
     if listing.enriched and not listing.images and not GREYISH_RE.search(text):
         # No photos to check and the text never mentions a grey-family colour.
         # (With photos we always let Claude look: text often only names the parents.)
         return Verdict(False, "no photos and no grey/blue/smoke in the text")
     return Verdict(True)
+
+
+def is_pedigree(listing: Listing) -> bool:
+    """Stated as pedigree: GCCF/TICA/FIFe registered, pedigree papers, or the site's
+    'registered' field. An advert that says it isn't registered never counts."""
+    text = listing.text
+    if NOT_PEDIGREE_RE.search(text) or listing.health.get("registered") is False and not PEDIGREE_RE.search(text):
+        return False
+    return bool(listing.health.get("registered")) or bool(PEDIGREE_RE.search(text))
 
 
 def final_check(listing: Listing, a: Assessment, s: Settings) -> Verdict:

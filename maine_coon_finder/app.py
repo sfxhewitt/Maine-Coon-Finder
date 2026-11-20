@@ -559,7 +559,7 @@ class Finder:
                 + f"\nChecked: {sum(c.values())} adverts"
                 + f"\nAlerts sent: {c.get('notified', 0) + c.get('approved', 0) + c.get('declined', 0) + c.get('contacted', 0)}"
                 + f"\nContacted: {c.get('contacted', 0)} · Skipped: {c.get('declined', 0)}"
-                + f"\nRules: dark grey only, under {self.s.max_age_days // 30} months, max £{self.s.max_price_gbp:.0f}"
+                + f"\nRules: dark grey only, {'pedigree only, ' if self.s.require_pedigree else ''}under {self.s.max_age_days // 30} months, max £{self.s.max_price_gbp:.0f}"
                 + (f", within {self.s.max_distance_miles:.0f} miles" if self.s.max_distance_miles and self.home else "")
                 + "\n\n" + self.summary_text(24, heading="<b>Last 24 hours</b>")
                 + "\n\nTurned down in the last 7 days: "
