@@ -32,6 +32,7 @@ def _dt(s: str | None) -> datetime | None:
 
 
 class Preloved(Source):
+    _total: int | None = None  # results count from the last first-page call
     name = "preloved"
     contact_note = (
         "Preloved only lets buyers reply through its own message form, so I can't "
@@ -39,8 +40,15 @@ class Preloved(Source):
     )
 
     def search(self, page: int = 1) -> Iterable[Listing]:
-        url = API + (f"&offset={(page - 1) * PAGE_SIZE}" if page > 1 else "")
+        offset = (page - 1) * PAGE_SIZE
+        # Preloved answers 503 (not an empty list) when asked for a page past the end,
+        # so never ask beyond the total it reported last time.
+        if page > 1 and self._total is not None and offset >= self._total:
+            return
+        url = API + (f"&offset={offset}" if page > 1 else "")
         data = self.http.get(url, headers={"Accept": "application/json"}).json()
+        total = (data.get("info") or {}).get("totalResults")
+        self._total = int(total) if isinstance(total, (int, float, str)) and str(total).isdigit() else None
         for ad in data.get("adverts", []):
             loc = ad.get("location") or {}
             coords = loc.get("coordinates") or {}

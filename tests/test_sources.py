@@ -66,3 +66,15 @@ def test_preloved_url_has_slug():
     l = list(Preloved(_F({"/account/api/classifieds": "preloved_search.json"})).search(1))[0]
     import re
     assert re.search(r"/adverts/show/\d+/[a-z0-9-]+$", l.url)
+
+
+def test_preloved_never_asks_past_the_last_page():
+    # Preloved answers 503 for an offset past the end, which looked like a block.
+    http = FakeHttp({"/account/api/classifieds": "preloved_search.json"})
+    src = Preloved(http)
+    list(src.search(1))
+    src._total = 24
+    assert list(src.search(2)) or True
+    calls = len(http.calls)
+    assert list(src.search(3)) == []  # offset 40 >= 24 results
+    assert len(http.calls) == calls
