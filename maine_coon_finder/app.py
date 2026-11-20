@@ -245,9 +245,10 @@ class Finder:
     def _recheck_after_price_change(self) -> None:
         """If the price cap went up, adverts turned down only for price get another look."""
         cap = self.s.max_price_gbp
-        old = self.store.meta_get("max_price_gbp")
-        self.store.meta_set("max_price_gbp", str(cap))
-        if old is None or float(old) >= cap:
+        # Before this was tracked, every install ran with a £1000 cap.
+        old = self.store.meta_get("price_cap_seen") or "1000"
+        self.store.meta_set("price_cap_seen", str(cap))
+        if float(old) >= cap:
             return
         keys = [
             r["key"]
