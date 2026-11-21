@@ -184,3 +184,21 @@ def test_first_run_of_price_tracking_assumes_the_old_1000_cap(tmp_path):
     f.store._db.execute("DELETE FROM meta WHERE k='price_cap_seen'"); f.store._db.commit()
     f2, _, _, _ = make(tmp_path, [l])
     assert f2.store.get(l.key)["status"] == "error"
+
+
+def test_a_later_page_failing_does_not_count_as_a_block(tmp_path):
+    from maine_coon_finder.http import BlockedError
+
+    f, tg, _, _ = make(tmp_path, [listing()])
+    src = f.sources[0].source
+
+    def search(page=1):
+        if page > 1:
+            raise BlockedError("www.example answered 503")
+        return [listing()]
+
+    src.search = search
+    f.s.backfill_pages = 3
+    f.scan_due_sources()
+    assert f.sources[0].last_ok and not f.sources[0].last_problem
+    assert f.store.get(listing().key)["status"] == "notified"

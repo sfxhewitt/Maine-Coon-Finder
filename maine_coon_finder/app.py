@@ -171,7 +171,15 @@ class Finder:
             pages = max(pages, self.s.backfill_pages)
         stats: dict[str, int] = {}
         for page in range(1, pages + 1):
-            found = list(st.source.search(page))
+            try:
+                found = list(st.source.search(page))
+            except BlockedError:
+                if page == 1:
+                    raise
+                # Page 1 worked, so the site isn't blocking us: a later page failing just
+                # means the catch-up scan ran past the end. Count the scan as done.
+                log.info("%s page %d refused; stopping the catch-up there", st.source.name, page)
+                break
             if not found:
                 break
             for listing in found:
